@@ -186,3 +186,24 @@ sudo ufw status verbose
 
 \- `03-ssh-hardened` — после переноса SSH на порт 2222 и проверки отказов.
 
+
+## 8. Веб-сервер
+
+Установите nginx и rsync. Создайте каталог `/var/www/devops-site` с владельцем
+`devops:devops` и режимом 755. Режим файлов сайта — 644.
+
+Создайте самоподписанный сертификат на 365 дней:
+
+```bash
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -subj /CN=devops.local -addext subjectAltName=DNS:devops.local \
+  -keyout /etc/ssl/private/devops.key -out /etc/ssl/certs/devops.crt
+sudo chmod 600 /etc/ssl/private/devops.key
+sudo chmod 644 /etc/ssl/certs/devops.crt
+```
+
+Владелец обоих файлов — root. Поместите конфигурацию из
+`config/devops-site.conf` в `/etc/nginx/sites-available/devops-site`.
+Активируйте ресурс символической ссылкой в `sites-enabled`, удалите ссылку
+`default` и выполните `sudo nginx -t && sudo systemctl reload nginx`.
+Скопируйте открытый сертификат через SSH в `~/devops.crt` на клиенте.

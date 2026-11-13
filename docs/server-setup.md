@@ -186,3 +186,47 @@ sudo ufw status verbose
 
 \- `03-ssh-hardened` — после переноса SSH на порт 2222 и проверки отказов.
 
+
+## 8. Веб-сервер
+
+Установите nginx и rsync. Создайте каталог `/var/www/devops-site` с владельцем
+`devops:devops` и режимом 755. Режим файлов сайта — 644.
+
+Создайте самоподписанный сертификат на 365 дней:
+
+```bash
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -subj /CN=devops.local -addext subjectAltName=DNS:devops.local \
+  -keyout /etc/ssl/private/devops.key -out /etc/ssl/certs/devops.crt
+sudo chmod 600 /etc/ssl/private/devops.key
+sudo chmod 644 /etc/ssl/certs/devops.crt
+```
+
+Владелец обоих файлов — root. Поместите конфигурацию из
+`config/devops-site.conf` в `/etc/nginx/sites-available/devops-site`.
+Активируйте ресурс символической ссылкой в `sites-enabled`, удалите ссылку
+`default` и выполните `sudo nginx -t && sudo systemctl reload nginx`.
+Скопируйте открытый сертификат через SSH в `~/devops.crt` на клиенте.
+
+## 9. Контейнеризация
+
+Установите Docker Engine и Compose из официального репозитория Docker для
+Ubuntu. На стенде проверены Engine 29.9.3 и Compose 5.7.1. Для пользователя
+`devops` выполните `sudo usermod -aG docker devops` и откройте новую SSH-сессию.
+Участники группы `docker` получают доступ к демону с привилегиями root.
+
+Доставьте каталог `app/` из корня репозитория командой
+`rsync -avz --delete --exclude=.env app/ devops:app/`. На VM в каталоге
+`/home/devops/app` создайте `.env` из `.env.example` с правами 600 и замените
+`POSTGRES_PASSWORD` случайным значением из `openssl rand -hex 16`.
+Файл с паролем хранится на VM. Запустите `docker compose up -d --build --wait`.
+
+Приложение публикует порт на `127.0.0.1:5000`. PostgreSQL доступен в сети
+`app_backend` по имени `db`. Его порт 5432 остаётся внутри сети Compose.
+Том `app_db_data` хранит данные PostgreSQL и сохраняется при `docker compose down`.
+
+Установите `config/devops-site.conf` в `/etc/nginx/sites-available/devops-site`.
+Блок `location /app/` в HTTPS-сервере проксирует запросы на
+`http://127.0.0.1:5000/`. Завершающий слеш заменяет префикс `/app/` на `/`.
+Примените конфигурацию через `sudo nginx -t && sudo systemctl reload nginx`.
+Проверьте `/app/health` и статическую страницу `/` по HTTPS с `--cacert`.

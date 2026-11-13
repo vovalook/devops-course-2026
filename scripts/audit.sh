@@ -41,5 +41,24 @@ check "Входящий трафик по умолчанию запрещён" "
 echo "[3] Учётные записи"
 awk -F: '$3 >= 1000 && $3 < 65534 {printf " %s (uid=%s)\n", $1, $3}' /etc/passwd
 
+echo "[4] Веб-сервер"
+check "Служба nginx активна" "active" "$(systemctl is-active nginx)"
+check "Синтаксис конфигурации Nginx" "0" "$(sudo nginx -t >&2; echo $?)"
+check "Срок действия сертификата" "0" "$(openssl x509 -in /etc/ssl/certs/devops.crt -noout -checkend "${CERT_MIN_SECONDS:-2592000}" >/dev/null; echo $?)"
+check "Права файлов сайта и закрытого ключа" "0::600" "$(paths=$(find /var/www/devops-site -perm -o+w); printf '%s:%s:' "$?" "$paths"; sudo stat -c '%a' /etc/ssl/private/devops.key)"
+
+echo "[5] Контейнеризация"
+check "Служба Docker активна" "active" "$(systemctl is-active docker)"
+db_health=$(sudo docker inspect -f '{{.State.Health.Status}}' app-db-1 2>/dev/null) || db_health="недоступен"
+check "Контейнер PostgreSQL готов" "healthy" "$db_health"
+if sockets=$(ss -H -tln); then
+    public_ports=$(awk '$4 ~ /:(5000|5432)$/ && $4 !~ /^127[.]0[.]0[.]1:/ {print $4}' <<< "$sockets")
+else
+    public_ports="не удалось прочитать список сокетов"
+fi
+check "Порты 5000 и 5432 не слушают внешние адреса" "" "$public_ports"
+env_mode=$(stat -c '%a' /home/devops/app/.env 2>/dev/null) || env_mode="недоступен"
+check "Права файла .env" "600" "$env_mode"
+
 echo "Пройдено: $PASS, не пройдено: $FAIL"
 [[ "$FAIL" -eq 0 ]]
